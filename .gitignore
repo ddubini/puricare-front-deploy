@@ -1,13 +1,46 @@
-# 의존성
+# ---------------------------
+# Node modules / deps
+# ---------------------------
 node_modules/
-
-# Next.js 빌드 결과
-.next/
-out/
-
-# 로그 / 환경변수
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# ---------------------------
+# Next.js build output
+# ---------------------------
+.next/
+out/
+
+# ---------------------------
+# Environment variables
+# ---------------------------
 .env
 .env.*
+!.env.example
+
+# ---------------------------
+# System files / IDE
+# ---------------------------
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# VSCode settings
+.vscode/
+
+# ---------------------------
+# Logs
+# ---------------------------
+*.log
+
+# ---------------------------
+# Optional: TypeScript build cache
+# ---------------------------
+*.tsbuildinfo
+
+# ---------------------------
+# Production artifacts (if any)
+# ---------------------------
+dist/
