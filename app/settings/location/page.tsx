@@ -11,9 +11,12 @@ declare global {
   }
 }
 
+// ✅ 이제 lat / lon까지 같이 저장
 type SavedLocation = {
   city: string;       // 예: '서울특별시'
   fullLabel?: string; // 예: '서울특별시 성동구 사근동'
+  lat?: number;
+  lon?: number;
 };
 
 const STORAGE_KEY = 'purecare_location_pref';
@@ -38,7 +41,9 @@ export default function LocationSettingsPage() {
         const data = JSON.parse(raw) as SavedLocation;
         setSelected(data);
         setQuery(data.city);
-      } catch {}
+      } catch {
+        /* ignore */
+      }
     }
   }, []);
 
@@ -87,22 +92,17 @@ export default function LocationSettingsPage() {
     // @ts-ignore
     const places = new window.kakao.maps.services.Places();
 
-    // 키워드 검색
-    places.keywordSearch(
-      query.trim(),
-      (data: any[], status: string) => {
-        setSearching(false);
+    places.keywordSearch(query.trim(), (data: any[], status: string) => {
+      setSearching(false);
 
-        // @ts-ignore
-        if (status !== window.kakao.maps.services.Status.OK) {
-          setResults([]);
-          return;
-        }
-
-        // 상위 5개만 보여주자 (모바일)
-        setResults(data.slice(0, 5));
+      // @ts-ignore
+      if (status !== window.kakao.maps.services.Status.OK) {
+        setResults([]);
+        return;
       }
-    );
+
+      setResults(data.slice(0, 5)); // 상위 5개만
+    });
   };
 
   // Enter 누르면 검색
@@ -113,15 +113,22 @@ export default function LocationSettingsPage() {
     }
   };
 
-  // 4) 결과 선택
+  // 4) 결과 선택 → 도시 + 전체 주소 + 위도/경도 저장
   const handleSelect = (place: any) => {
-    // address_name: '서울특별시 성동구 사근동'
-    const address: string = place.address_name || place.road_address_name || place.place_name;
+    const address: string =
+      place.address_name || place.road_address_name || place.place_name;
     const tokens = address.split(' ');
-    const city = tokens[0] || address;       // '서울특별시'
-    const fullLabel = address;              // 전체 주소
+    const city = tokens[0] || address;
 
-    setSelected({ city, fullLabel });
+    const lat = Number(place.y); // 위도
+    const lon = Number(place.x); // 경도
+
+    setSelected({
+      city,
+      fullLabel: address,
+      lat: Number.isFinite(lat) ? lat : undefined,
+      lon: Number.isFinite(lon) ? lon : undefined,
+    });
     setQuery(city);
     setResults([]); // 리스트 닫기
   };
@@ -163,7 +170,10 @@ export default function LocationSettingsPage() {
   };
 
   return (
-    <main className="pb-safe" style={{ minHeight: '100dvh', background: 'var(--bg)', color: 'var(--text)' }}>
+    <main
+      className="pb-safe"
+      style={{ minHeight: '100dvh', background: 'var(--bg)', color: 'var(--text)' }}
+    >
       {/* 헤더 */}
       <div
         className="mobile-wrap"
@@ -178,7 +188,11 @@ export default function LocationSettingsPage() {
           gap: 8,
         }}
       >
-        <button onClick={() => router.back()} aria-label="뒤로" style={{ fontSize: 20, height: 44, width: 44 }}>
+        <button
+          onClick={() => router.back()}
+          aria-label="뒤로"
+          style={{ fontSize: 20, height: 44, width: 44 }}
+        >
           ←
         </button>
 
@@ -200,7 +214,10 @@ export default function LocationSettingsPage() {
         </button>
       </div>
 
-      <section className="mobile-wrap" style={{ padding: 16, display: 'grid', gap: 14 }}>
+      <section
+        className="mobile-wrap"
+        style={{ padding: 16, display: 'grid', gap: 14 }}
+      >
         {/* 검색 박스 + 자동완성 */}
         <div
           style={{
@@ -250,7 +267,14 @@ export default function LocationSettingsPage() {
           </div>
 
           {/* 검색 버튼 / 상태 */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, opacity: 0.8 }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              fontSize: 12,
+              opacity: 0.8,
+            }}
+          >
             <button
               type="button"
               onClick={handleSearch}
@@ -282,7 +306,9 @@ export default function LocationSettingsPage() {
             >
               {results.map((place) => {
                 const addr: string =
-                  place.address_name || place.road_address_name || place.place_name;
+                  place.address_name ||
+                  place.road_address_name ||
+                  place.place_name;
 
                 const tokens = addr.split(' ');
                 const city = tokens[0] || addr;
@@ -300,11 +326,20 @@ export default function LocationSettingsPage() {
                       background: 'transparent',
                       color: 'inherit',
                       fontSize: 13,
-                      borderBottom: '1px solid rgba(255,255,255,0.04)',
+                      borderBottom:
+                        '1px solid rgba(255,255,255,0.04)',
                     }}
                   >
                     <div style={{ fontWeight: 600 }}>{city}</div>
-                    <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>{addr}</div>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        opacity: 0.75,
+                        marginTop: 2,
+                      }}
+                    >
+                      {addr}
+                    </div>
                   </button>
                 );
               })}
@@ -326,13 +361,27 @@ export default function LocationSettingsPage() {
 
           {selected ? (
             <>
-              <div style={{ fontSize: 15, fontWeight: 600 }}>{selected.city}</div>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>
+                {selected.city}
+              </div>
               {selected.fullLabel && (
-                <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>
+                <div
+                  style={{
+                    fontSize: 12,
+                    opacity: 0.75,
+                    marginTop: 4,
+                  }}
+                >
                   {selected.fullLabel}
                 </div>
               )}
-              <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>
+              <div
+                style={{
+                  fontSize: 12,
+                  opacity: 0.7,
+                  marginTop: 4,
+                }}
+              >
                 이 위치는 홈 화면과 날씨 추천에 사용됩니다.
               </div>
 
@@ -355,7 +404,9 @@ export default function LocationSettingsPage() {
               </button>
             </>
           ) : (
-            <div style={{ opacity: 0.7 }}>아직 저장된 위치가 없습니다.</div>
+            <div style={{ opacity: 0.7 }}>
+              아직 저장된 위치가 없습니다.
+            </div>
           )}
         </div>
       </section>
@@ -364,4 +415,5 @@ export default function LocationSettingsPage() {
     </main>
   );
 }
+
 

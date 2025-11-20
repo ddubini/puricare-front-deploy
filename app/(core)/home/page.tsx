@@ -15,22 +15,14 @@ const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 type Coords = { lat: number; lon: number };
 
-// 방 타입
-export type RoomType =
-  | 'living'   // 거실
-  | 'master'   // 안방
-  | 'small'    // 작은방
-  | 'small2'   // 작은방2
-  | 'toilet'   // 화장실
-  | 'bath';    // 욕실
+// 위치 설정 화면에서 쓰는 저장 타입과 키 (fallback 용)
+const LOCATION_STORAGE_KEY = 'purecare_location_pref';
 
-const ROOM_TYPE_LABEL: Record<RoomType, string> = {
-  living: '거실',
-  master: '안방',
-  small: '작은방',
-  small2: '작은방2',
-  toilet: '화장실',
-  bath: '욕실',
+type SavedLocation = {
+  city: string;
+  fullLabel?: string;
+  lat?: number;
+  lon?: number;
 };
 
 // 기본 위치: 서울시청
@@ -57,7 +49,6 @@ export type RoomSummary = {
   lastUpdated: string;
   aqi: number;
   aqiLabel: string;
-  roomType?: RoomType; // ✅ 어느 방인지
 };
 
 // 백엔드 연동 실패 시 사용할 목업 룸 데이터
@@ -69,7 +60,6 @@ const MOCK_ROOMS: RoomSummary[] = [
     lastUpdated: '10분 전 (목업 데이터)',
     aqi: 32,
     aqiLabel: '좋음',
-    roomType: 'living', // 거실
   },
   {
     id: 'bath',
@@ -78,7 +68,6 @@ const MOCK_ROOMS: RoomSummary[] = [
     lastUpdated: '5분 전 (목업 데이터)',
     aqi: 40,
     aqiLabel: '보통',
-    roomType: 'bath', // 욕실
   },
   {
     id: 'master',
@@ -87,7 +76,6 @@ const MOCK_ROOMS: RoomSummary[] = [
     lastUpdated: '어제 (목업 데이터)',
     aqi: 28,
     aqiLabel: '좋음',
-    roomType: 'master', // 안방
   },
 ];
 
@@ -147,19 +135,12 @@ function ShellCard({
 }
 
 function RoomCard({ room, onClick }: { room: RoomSummary; onClick: () => void }) {
-  const roomLabel = room.roomType ? ROOM_TYPE_LABEL[room.roomType] : null;
-
   return (
     <ShellCard onClick={onClick}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
         <div>
           <div style={{ fontSize: 15, fontWeight: 800 }}>{room.name}</div>
           <div style={{ fontSize: 12, opacity: 0.8, marginTop: 4 }}>
-            {roomLabel && (
-              <>
-                {roomLabel} ·{' '}
-              </>
-            )}
             {room.subtitle}
           </div>
           <div style={{ fontSize: 11, opacity: 0.7, marginTop: 2 }}>
@@ -195,13 +176,46 @@ export default function HomePage() {
     if (!auth.idToken) router.replace('/login');
   }, [auth.idToken, router]);
 
-  const name = useMemo(() => auth.profile?.name ?? '사용자', [auth.profile?.name]);
+  const name = useMemo(
+    () => auth.profile?.name ?? '사용자',
+    [auth.profile?.name],
+  );
 
   // 현재 좌표 상태
   const [coords, setCoords] = useState<Coords>(SEOUL);
 
+  // ✅ GPS + 저장된 위치 fallback
   useEffect(() => {
-    if (!('geolocation' in navigator)) return;
+    // window.localStorage 사용 시 SSR 방지
+    const useSavedLocation = () => {
+      try {
+        const raw =
+          typeof window !== 'undefined'
+            ? window.localStorage.getItem(LOCATION_STORAGE_KEY)
+            : null;
+        if (raw) {
+          const saved: SavedLocation = JSON.parse(raw);
+          if (
+            typeof saved.lat === 'number' &&
+            typeof saved.lon === 'number'
+          ) {
+            setCoords({ lat: saved.lat, lon: saved.lon });
+            return true;
+          }
+        }
+      } catch {
+        // ignore
+      }
+      return false;
+    };
+
+    if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
+      // geolocation 자체가 없으면 바로 fallback 시도
+      if (!useSavedLocation()) {
+        setCoords(SEOUL);
+      }
+      return;
+    }
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
@@ -211,7 +225,10 @@ export default function HomePage() {
         });
       },
       () => {
-        setCoords(SEOUL);
+        // 권한 거부 or 오류 → 저장된 위치 사용 시도, 실패 시 서울 기본값
+        if (!useSavedLocation()) {
+          setCoords(SEOUL);
+        }
       },
       {
         enableHighAccuracy: true,
@@ -233,7 +250,22 @@ export default function HomePage() {
     { revalidateOnFocus: false },
   );
 
-  const city = geo?.city ?? 'Seoul';
+  // ✅ 도시 이름도 저장된 위치를 우선 fallback 으로 활용
+  let city: string = geo?.city ?? 'Seoul';
+  try {
+    if (typeof window !== 'undefined') {
+      const raw = window.localStorage.getItem(LOCATION_STORAGE_KEY);
+      if (raw) {
+        const saved: SavedLocation = JSON.parse(raw);
+        if (!geo?.city && saved.city) {
+          city = saved.city;
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
   const temp = weather?.current?.temp ?? '-';
   const humidity = weather?.current?.humidity ?? '-';
   const main = weather?.current?.main;
@@ -300,7 +332,11 @@ export default function HomePage() {
   return (
     <main
       className="pb-safe"
-      style={{ minHeight: '100dvh', background: 'var(--bg)', color: 'var(--text)' }}
+      style={{
+        minHeight: '100dvh',
+        background: 'var(--bg)',
+        color: 'var(--text)',
+      }}
     >
       <WelcomeModal />
 
@@ -317,11 +353,16 @@ export default function HomePage() {
         <div style={{ fontSize: 18, fontWeight: 800 }}>홈</div>
       </div>
 
-      <section className="mobile-wrap" style={{ padding: 16, display: 'grid', gap: 14 }}>
+      <section
+        className="mobile-wrap"
+        style={{ padding: 16, display: 'grid', gap: 14 }}
+      >
         {/* 1. 인사 + 실내 AQI */}
         <ShellCard onClick={() => router.push('/profile')}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ fontSize: 20, fontWeight: 800 }}>Hello, {name} 님</div>
+            <div style={{ fontSize: 20, fontWeight: 800 }}>
+              Hello, {name} 님
+            </div>
             <div style={{ fontSize: 12, opacity: 0.8 }}>
               if we need to add something like more infomation, i will modify.
             </div>
@@ -344,7 +385,9 @@ export default function HomePage() {
                 </div>
                 <div style={{ fontSize: 18, fontWeight: 800 }}>
                   AQI {MOCK_INDOOR_AQI.value}{' '}
-                  <span style={{ fontSize: 13 }}>({MOCK_INDOOR_AQI.label})</span>
+                  <span style={{ fontSize: 13 }}>
+                    ({MOCK_INDOOR_AQI.label})
+                  </span>
                 </div>
                 <div style={{ fontSize: 11, opacity: 0.8 }}>
                   현재 실내 습도 {MOCK_INDOOR_AQI.humidity}% · 자동 모드 유지 중
@@ -413,9 +456,15 @@ export default function HomePage() {
         {/* 3. 기기 리스트 */}
         {usingMock && (
           <div
-            style={{ fontSize: 11, opacity: 0.7, marginTop: 4, marginBottom: -4 }}
+            style={{
+              fontSize: 11,
+              opacity: 0.7,
+              marginTop: 4,
+              marginBottom: -4,
+            }}
           >
-            ※ 현재 서버와 연동되지 않아 예시(목업) 데이터가 표시되는 상태입니다.
+            ※ 현재 서버와 연동되지 않아 예시(목업) 데이터가 표시되는
+            상태입니다.
           </div>
         )}
 
